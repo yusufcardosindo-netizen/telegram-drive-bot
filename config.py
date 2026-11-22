@@ -42,6 +42,16 @@ ALLOWED_TELEGRAM_USERS = (
     else []
 )
 
+# Comma-separated list of approved Google/Gmail accounts allowed to receive file access
+# If set, only these emails will be granted Google Drive permissions.
+# Example: friend1@gmail.com,colleague@gmail.com
+_allowed_emails_raw = os.getenv("ALLOWED_EMAILS", "").strip()
+ALLOWED_EMAILS = (
+    [e.strip().lower() for e in _allowed_emails_raw.split(",") if e.strip()]
+    if _allowed_emails_raw
+    else []
+)
+
 # Feature Flags
 ENABLE_DIRECT_DOWNLOAD = os.getenv("ENABLE_DIRECT_DOWNLOAD", "true").lower() in ("1", "true", "yes")
 ENABLE_EMAIL_SHARING = os.getenv("ENABLE_EMAIL_SHARING", "true").lower() in ("1", "true", "yes")

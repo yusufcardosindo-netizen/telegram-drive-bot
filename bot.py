@@ -27,6 +27,7 @@ from telegram.ext import (
 from config import (
     ACCESS_PASSCODE,
     ADMIN_TELEGRAM_ID,
+    ALLOWED_EMAILS,
     ALLOWED_TELEGRAM_USERS,
     DEFAULT_SHARE_ROLE,
     ENABLE_DIRECT_DOWNLOAD,
@@ -433,6 +434,25 @@ async def process_email_share(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return AWAITING_EMAIL
 
+    # Check if email is on the approved list (if restricted)
+    if ALLOWED_EMAILS and email.lower() not in ALLOWED_EMAILS:
+        await update.message.reply_text(
+            f"⛔ <b>Access Denied</b>\n\n"
+            f"The email <code>{html.escape(email)}</code> is not on the approved access list.\n"
+            "Please contact the owner to have your email authorized.",
+            parse_mode=ParseMode.HTML,
+        )
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await notify_admin(
+            context,
+            f"⚠️ <b>Unauthorized Email Blocked</b>\n"
+            f"• <b>User:</b> {html.escape(user.full_name)} (@{user.username or 'none'})\n"
+            f"• <b>Blocked Email:</b> <code>{html.escape(email)}</code>\n"
+            f"• <b>Time:</b> {now_str}",
+        )
+        context.user_data.pop("pending_share_file_id", None)
+        return ConversationHandler.END
+
     status_msg = await update.message.reply_text(f"⏳ Granting Google Drive access to <b>{html.escape(email)}</b>...", parse_mode=ParseMode.HTML)
 
     try:
@@ -498,6 +518,14 @@ async def direct_share_command(update: Update, context: ContextTypes.DEFAULT_TYP
     file_id, email = args[0].strip(), args[1].strip()
     if not EMAIL_REGEX.match(email):
         await update.message.reply_text("❌ Invalid email format.")
+        return
+
+    # Check if email is on the approved list (if restricted)
+    if ALLOWED_EMAILS and email.lower() not in ALLOWED_EMAILS:
+        await update.message.reply_text(
+            f"⛔ <b>Access Denied:</b> <code>{html.escape(email)}</code> is not on the approved access list.",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     status_msg = await update.message.reply_text(f"⏳ Granting access to {html.escape(email)}...")
