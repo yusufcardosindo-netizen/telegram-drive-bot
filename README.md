@@ -137,6 +137,7 @@ You should see:
 | **Authorize** | `/auth <passcode>` | Unlocks file access if you configured a passcode. |
 | **Browse** | `/list` or `/files` | Lists available files with action buttons. |
 | **Search** | `/search <filename>` | Searches files matching the keyword. |
+| **Request Access** | `/request <your@gmail.com>` | Instantly grants access to the shared Google Drive folder. |
 | **Download** | Click `📥 Download File` or `/get <file_id>` | Sends file directly via Telegram (if <= 50MB) or provides link. |
 | **Grant Access** | Click `🔑 Grant Drive Access` | Prompts user for their Gmail, then grants instant Drive access! |
 | **Direct Share** | `/share <file_id> <email>` | Grants access to the specified Google account immediately. |

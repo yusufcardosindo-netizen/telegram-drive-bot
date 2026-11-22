@@ -32,6 +32,7 @@ from config import (
     DEFAULT_SHARE_ROLE,
     ENABLE_DIRECT_DOWNLOAD,
     ENABLE_EMAIL_SHARING,
+    GOOGLE_DRIVE_FOLDER_ID,
     MAX_TELEGRAM_FILE_SIZE,
     TELEGRAM_BOT_TOKEN,
 )
@@ -168,6 +169,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Even when the drive owner is offline, I can help you search, download, or "
         "grant direct Google Drive access to the files you need.\n\n"
         "<b>Available Commands:</b>\n"
+        "• <code>/request your@gmail.com</code> - Request instant access for your Google account\n"
         "• <code>/list</code> - Browse available files\n"
         "• <code>/search &lt;query&gt;</code> - Search for a specific file\n"
         "• <code>/help</code> - How to use this bot"
@@ -217,12 +219,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /help command."""
     help_text = (
         "📖 <b>How to Access Files:</b>\n\n"
-        "1. <b>Browse Files:</b> Use <code>/list</code> to see the files shared in the repository.\n"
-        "2. <b>Search:</b> Use <code>/search &lt;filename&gt;</code> to quickly find a file.\n"
-        "3. <b>Direct Download:</b> Click <i>'📥 Download File'</i> or use <code>/get &lt;file_id&gt;</code>. "
+        "1. <b>Request Folder Access:</b> Use <code>/request your@gmail.com</code> to instantly get "
+        "Viewer access to the shared Google Drive folder.\n"
+        "2. <b>Browse Files:</b> Use <code>/list</code> to see the files shared in the repository.\n"
+        "3. <b>Search:</b> Use <code>/search &lt;filename&gt;</code> to quickly find a file.\n"
+        "4. <b>Direct Download:</b> Click <i>'📥 Download File'</i> or use <code>/get &lt;file_id&gt;</code>. "
         "Files under 50MB will be sent directly to you in Telegram.\n"
-        "4. <b>Google Drive Sharing:</b> Click <i>'🔑 Grant Drive Access'</i> to add your Google/Gmail account "
-        "as a viewer on Drive so you can open it directly in your own Google Drive."
+        "5. <b>Single File Sharing:</b> Click <i>'🔑 Grant Drive Access'</i> to add your Google account to a specific file."
     )
     if update.callback_query:
         await safe_answer_callback(update.callback_query)
@@ -501,6 +504,103 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ==================== DIRECT COMMANDS ====================
 
 
+async def request_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Direct command: /request your@gmail.com to request access to the shared Google Drive folder."""
+    if not is_user_authorized(update):
+        await update.message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
+        return
+
+    user = update.effective_user
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: <code>/request your@gmail.com</code>\n"
+            "Example: <code>/request user@gmail.com</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    email = args[0].strip().lower()
+    if not EMAIL_REGEX.match(email):
+        await update.message.reply_text(
+            "❌ Invalid email format. Please provide a valid Google / Gmail address:\n"
+            "<code>/request yourname@gmail.com</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 1. Check if email exclusion/whitelist is active
+    if ALLOWED_EMAILS and email not in ALLOWED_EMAILS:
+        await update.message.reply_text(
+            f"⛔ <b>Access Denied</b>\n\n"
+            f"The email <code>{html.escape(email)}</code> is not on the approved access list.\n\n"
+            "Your request has been recorded. Please contact the owner to have your email approved.",
+            parse_mode=ParseMode.HTML,
+        )
+        await notify_admin(
+            context,
+            f"⚠️ <b>Access Request Blocked (Not in Whitelist)</b>\n"
+            f"• <b>User:</b> {html.escape(user.full_name)} (@{user.username or 'none'}, ID: <code>{user.id}</code>)\n"
+            f"• <b>Requested Email:</b> <code>{html.escape(email)}</code>\n"
+            f"• <b>Time:</b> {now_str}",
+        )
+        return
+
+    # 2. Grant access to the Google Drive folder
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        await update.message.reply_text(
+            "⚠️ No root Google Drive folder is configured. Please use <code>/list</code> to select specific files.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    status_msg = await update.message.reply_text(
+        f"⏳ Processing access request for <b>{html.escape(email)}</b>...",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        folder_meta = drive_service.get_file_metadata(GOOGLE_DRIVE_FOLDER_ID)
+        folder_name = folder_meta.get("name", "Shared Drive Folder")
+
+        drive_service.share_file_with_email(
+            GOOGLE_DRIVE_FOLDER_ID, email, role=DEFAULT_SHARE_ROLE
+        )
+
+        folder_link = folder_meta.get("webViewLink", "")
+        link_html = (
+            f"\n🔗 <a href='{folder_link}'>Open Shared Folder in Google Drive</a>"
+            if folder_link
+            else ""
+        )
+
+        await status_msg.edit_text(
+            f"🎉 <b>Access Granted Successfully!</b>\n\n"
+            f"📂 <b>Folder:</b> {html.escape(folder_name)}\n"
+            f"👤 <b>Email:</b> <code>{html.escape(email)}</code>\n"
+            f"🛡️ <b>Permission:</b> {DEFAULT_SHARE_ROLE.capitalize()} (Viewer)\n\n"
+            f"Google has sent an invitation email to your address with access to the folder and all its files.{link_html}",
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=False,
+        )
+
+        await notify_admin(
+            context,
+            f"🔔 <b>Offline Bot Activity Alert</b>\n"
+            f"• <b>User:</b> {html.escape(user.full_name)} (@{user.username or 'none'}, ID: <code>{user.id}</code>)\n"
+            f"• <b>Action:</b> Granted Folder Access via /request\n"
+            f"• <b>Target Email:</b> <code>{html.escape(email)}</code>\n"
+            f"• <b>Folder:</b> <i>{html.escape(folder_name)}</i>\n"
+            f"• <b>Time:</b> {now_str}",
+        )
+
+    except Exception as e:
+        logger.error("Failed to grant folder access to %s: %s", email, e)
+        await status_msg.edit_text(f"❌ Failed to grant Drive access: {html.escape(str(e))}")
+
+
 async def direct_share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct command: /share <file_id> <email>"""
     if not is_user_authorized(update):
@@ -635,6 +735,7 @@ def main():
     application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("get", direct_get_command))
     application.add_handler(CommandHandler("share", direct_share_command))
+    application.add_handler(CommandHandler("request", request_command))
 
     # Add conversation handler before generic callback handler
     application.add_handler(share_conv_handler)
