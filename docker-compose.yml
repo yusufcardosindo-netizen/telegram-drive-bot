@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  drive-bot:
+    build: .
+    container_name: telegram-drive-bot
+    restart: always
+    env_file:
+      - .env
