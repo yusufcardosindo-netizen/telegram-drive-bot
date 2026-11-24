@@ -4,9 +4,16 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env or .env.example
 BASE_DIR = Path(__file__).resolve().parent
+RENDER_SECRETS_DIR = Path("/etc/secrets")
+
+# 1. Load local .env if present
 if (BASE_DIR / ".env").exists():
     load_dotenv(BASE_DIR / ".env")
-else:
+# 2. Load Render Cloud Secret File if present
+if (RENDER_SECRETS_DIR / ".env").exists():
+    load_dotenv(RENDER_SECRETS_DIR / ".env")
+# 3. Load .env.example as fallback
+if (BASE_DIR / ".env.example").exists():
     load_dotenv(BASE_DIR / ".env.example")
 
 # Telegram Configuration
@@ -21,9 +28,15 @@ if "folders/" in _raw_folder_id:
 else:
     GOOGLE_DRIVE_FOLDER_ID = _raw_folder_id.split("?")[0].strip()
 
-# Authentication file paths
-SERVICE_ACCOUNT_FILE = os.getenv(
-    "SERVICE_ACCOUNT_FILE", str(BASE_DIR / "service_account.json")
+# Authentication file paths: checks local directory, environment variable, and Render /etc/secrets
+_service_candidates = [
+    os.getenv("SERVICE_ACCOUNT_FILE"),
+    str(BASE_DIR / "service_account.json"),
+    str(RENDER_SECRETS_DIR / "service_account.json"),
+]
+SERVICE_ACCOUNT_FILE = next(
+    (p for p in _service_candidates if p and os.path.exists(p)),
+    str(BASE_DIR / "service_account.json"),
 )
 OAUTH_CREDENTIALS_FILE = os.getenv(
     "OAUTH_CREDENTIALS_FILE", str(BASE_DIR / "credentials.json")
