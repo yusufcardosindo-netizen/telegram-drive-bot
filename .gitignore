@@ -12,6 +12,7 @@ __pycache__/
 service_account.json
 credentials.json
 token.json
+registered_users.json
 
 # Logs and archives
 *.log

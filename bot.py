@@ -1,11 +1,13 @@
 import html
 import io
+import json
 import logging
 import os
 import re
 import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 from telegram import (
@@ -50,6 +52,31 @@ AWAITING_SEARCH_QUERY = 2
 
 # In-memory storage for authorized sessions (user_id) if passcode is configured
 authenticated_users: Set[int] = set()
+
+# Persistent registration file
+REGISTRATIONS_FILE = Path(__file__).resolve().parent / "registered_users.json"
+
+
+def load_registered_users() -> Dict[str, Any]:
+    """Loads user registrations from JSON file."""
+    if REGISTRATIONS_FILE.exists():
+        try:
+            with open(REGISTRATIONS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error("Error reading registered_users.json: %s", e)
+    return {}
+
+
+def save_registered_user(user_id: int, user_info: Dict[str, Any]):
+    """Saves or updates a user registration record."""
+    users = load_registered_users()
+    users[str(user_id)] = user_info
+    try:
+        with open(REGISTRATIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error("Error saving registered_users.json: %s", e)
 
 # Initialize Google Drive Service
 drive_service = GoogleDriveService()
@@ -144,13 +171,15 @@ def build_file_keyboard(file_id: str) -> InlineKeyboardMarkup:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /start command."""
+    """Handles /start command both in private chat and in groups (/start @AcessV_Bot)."""
     user = update.effective_user
     user_name = html.escape(user.first_name if user else "there")
+    chat = update.effective_chat
+    is_group = chat and chat.type in ["group", "supergroup"]
 
     if not is_user_authorized(update):
         if ACCESS_PASSCODE:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"👋 Hello {user_name}!\n\n"
                 "🔒 This bot requires an access passcode to view or request files.\n"
                 "Please enter the passcode using:\n"
@@ -158,9 +187,41 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML,
             )
         else:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "⛔ Sorry, you are not authorized to use this bot."
             )
+        return
+
+    # Special greeting when /start or /start @AcessV_Bot is used in a group/chat
+    if is_group:
+        chat_title = html.escape(chat.title or "this chat")
+        welcome_group_text = (
+            f"👋 Hello everyone in <b>{chat_title}</b>!\n\n"
+            "I am <b>@AcessV_Bot</b>, your automated Google Drive Assistant. "
+            "Members can browse, download, and request Google Drive file access 24/7 "
+            "even when the owner is offline!\n\n"
+            "<b>Available Commands in this Group:</b>\n"
+            "• <code>/register your@gmail.com</code> - Register your Google account for access\n"
+            "• <code>/request your@gmail.com</code> - Request instant folder access\n"
+            "• <code>/list</code> - Browse shared files\n"
+            "• <code>/search &lt;query&gt;</code> - Search for a specific file\n"
+            "• <code>/help</code> - Detailed instructions\n\n"
+            "<i>💡 Tip: You can also message me in private chat for 1-on-1 direct file downloads!</i>"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("📂 Browse Files", callback_data="btn_list"),
+                InlineKeyboardButton("🔍 Search Files", callback_data="btn_search"),
+            ],
+            [
+                InlineKeyboardButton("💬 Open in Private Chat", url="https://t.me/AcessV_Bot?start=group"),
+            ],
+        ]
+        await update.effective_message.reply_text(
+            welcome_group_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     welcome_text = (
@@ -169,6 +230,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Even when the drive owner is offline, I can help you search, download, or "
         "grant direct Google Drive access to the files you need.\n\n"
         "<b>Available Commands:</b>\n"
+        "• <code>/register your@gmail.com</code> - Register your Google account for Drive access\n"
         "• <code>/request your@gmail.com</code> - Request instant access for your Google account\n"
         "• <code>/list</code> - Browse available files\n"
         "• <code>/search &lt;query&gt;</code> - Search for a specific file\n"
@@ -188,6 +250,43 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.HTML,
     )
+
+
+async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Automatically greets the group when @AcessV_Bot is added to a chat or group."""
+    if not update.message or not update.message.new_chat_members:
+        return
+
+    bot_id = context.bot.id
+    for member in update.message.new_chat_members:
+        if member.id == bot_id or (member.username and member.username.lower() == "acessv_bot"):
+            chat_title = html.escape(update.effective_chat.title or "this chat")
+            welcome_text = (
+                f"🎉 <b>Thanks for adding me to {chat_title}!</b>\n\n"
+                "I am <b>@AcessV_Bot</b>, your automated Google Drive Assistant.\n"
+                "Members can request or register for file access 24/7 even when the drive owner is offline!\n\n"
+                "<b>Quick Start:</b>\n"
+                "• <code>/register your@gmail.com</code> - Register your Google account for Drive access\n"
+                "• <code>/request your@gmail.com</code> - Request instant folder access\n"
+                "• <code>/list</code> - View files in the repository\n"
+                "• <code>/help</code> - Show bot commands\n\n"
+                "<i>Type <code>/start @AcessV_Bot</code> anytime to see this menu again!</i>"
+            )
+            keyboard = [
+                [
+                    InlineKeyboardButton("📂 Browse Files", callback_data="btn_list"),
+                    InlineKeyboardButton("ℹ️ Help", callback_data="btn_help"),
+                ],
+                [
+                    InlineKeyboardButton("💬 Open in Private Chat", url="https://t.me/AcessV_Bot?start=group_welcome"),
+                ],
+            ]
+            await update.message.reply_text(
+                welcome_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML,
+            )
+            break
 
 
 async def auth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -219,13 +318,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /help command."""
     help_text = (
         "📖 <b>How to Access Files:</b>\n\n"
-        "1. <b>Request Folder Access:</b> Use <code>/request your@gmail.com</code> to instantly get "
+        "1. <b>Register Email:</b> Use <code>/register your@gmail.com</code> to link your Google account "
+        "and receive access to the shared Google Drive repository.\n"
+        "2. <b>Request Folder Access:</b> Use <code>/request your@gmail.com</code> to request "
         "Viewer access to the shared Google Drive folder.\n"
-        "2. <b>Browse Files:</b> Use <code>/list</code> to see the files shared in the repository.\n"
-        "3. <b>Search:</b> Use <code>/search &lt;filename&gt;</code> to quickly find a file.\n"
-        "4. <b>Direct Download:</b> Click <i>'📥 Download File'</i> or use <code>/get &lt;file_id&gt;</code>. "
+        "3. <b>Browse Files:</b> Use <code>/list</code> to see the files in the repository.\n"
+        "4. <b>Search:</b> Use <code>/search &lt;filename&gt;</code> to quickly find a file.\n"
+        "5. <b>Direct Download:</b> Click <i>'📥 Download File'</i> or use <code>/get &lt;file_id&gt;</code>. "
         "Files under 50MB will be sent directly to you in Telegram.\n"
-        "5. <b>Single File Sharing:</b> Click <i>'🔑 Grant Drive Access'</i> to add your Google account to a specific file."
+        "6. <b>Single File Sharing:</b> Click <i>'🔑 Grant Drive Access'</i> to add your Google account to a specific file."
     )
     if update.callback_query:
         await safe_answer_callback(update.callback_query)
@@ -504,6 +605,123 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ==================== DIRECT COMMANDS ====================
 
 
+async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Direct command: /register your@gmail.com to register a user's Google email for Drive access."""
+    if not is_user_authorized(update):
+        await update.message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
+        return
+
+    user = update.effective_user
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: <code>/register your@gmail.com</code>\n"
+            "Example: <code>/register user@gmail.com</code>\n\n"
+            "This command registers your Google email and grants you access to the shared Google Drive repository.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    email = args[0].strip().lower()
+    if not EMAIL_REGEX.match(email):
+        await update.message.reply_text(
+            "❌ Invalid email format. Please provide a valid Google / Gmail address:\n"
+            "<code>/register yourname@gmail.com</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 1. Check if email whitelist/exclusion is active
+    if ALLOWED_EMAILS and email not in ALLOWED_EMAILS:
+        await update.message.reply_text(
+            f"⛔ <b>Access Denied</b>\n\n"
+            f"The email <code>{html.escape(email)}</code> is not on the pre-approved whitelist.\n\n"
+            "Your registration attempt has been recorded. Please contact the owner to have your email approved.",
+            parse_mode=ParseMode.HTML,
+        )
+        await notify_admin(
+            context,
+            f"⚠️ <b>Registration Attempt Blocked (Not in Whitelist)</b>\n"
+            f"• <b>User:</b> {html.escape(user.full_name)} (@{user.username or 'none'}, ID: <code>{user.id}</code>)\n"
+            f"• <b>Attempted Email:</b> <code>{html.escape(email)}</code>\n"
+            f"• <b>Time:</b> {now_str}",
+        )
+        return
+
+    # 2. Persist user registration
+    user_record = {
+        "user_id": user.id,
+        "full_name": user.full_name,
+        "username": user.username or "",
+        "email": email,
+        "registered_at": now_str,
+    }
+    save_registered_user(user.id, user_record)
+
+    # 3. Grant Google Drive folder access if folder is configured
+    folder_granted = False
+    folder_name = "Shared Drive"
+    folder_link = ""
+
+    if GOOGLE_DRIVE_FOLDER_ID:
+        status_msg = await update.message.reply_text(
+            f"⏳ Registering <b>{html.escape(email)}</b> and granting Google Drive access...",
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            folder_meta = drive_service.get_file_metadata(GOOGLE_DRIVE_FOLDER_ID)
+            folder_name = folder_meta.get("name", "Shared Drive Folder")
+            folder_link = folder_meta.get("webViewLink", "")
+
+            drive_service.share_file_with_email(
+                GOOGLE_DRIVE_FOLDER_ID, email, role=DEFAULT_SHARE_ROLE
+            )
+            folder_granted = True
+        except Exception as e:
+            logger.error("Failed to grant folder access during registration for %s: %s", email, e)
+            await status_msg.edit_text(
+                f"⚠️ Registered <code>{html.escape(email)}</code>, but failed to grant automatic Drive access: {html.escape(str(e))}"
+            )
+            return
+
+        link_html = (
+            f"\n🔗 <a href='{folder_link}'>Open Shared Folder in Google Drive</a>"
+            if folder_link
+            else ""
+        )
+
+        await status_msg.edit_text(
+            f"🎉 <b>Registration Complete!</b>\n\n"
+            f"👤 <b>User:</b> {html.escape(user.full_name)}\n"
+            f"📧 <b>Linked Email:</b> <code>{html.escape(email)}</code>\n"
+            f"📂 <b>Drive Folder:</b> {html.escape(folder_name)}\n"
+            f"🛡️ <b>Permission:</b> {DEFAULT_SHARE_ROLE.capitalize()} (Viewer)\n\n"
+            f"Google has dispatched an invitation email to your address. You now have full access to the repository!{link_html}",
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=False,
+        )
+    else:
+        await update.message.reply_text(
+            f"🎉 <b>Registration Complete!</b>\n\n"
+            f"👤 <b>User:</b> {html.escape(user.full_name)}\n"
+            f"📧 <b>Linked Email:</b> <code>{html.escape(email)}</code>\n\n"
+            "Your email has been registered successfully. You can now browse or download files.",
+            parse_mode=ParseMode.HTML,
+        )
+
+    # 4. Notify Owner
+    await notify_admin(
+        context,
+        f"🔔 <b>New User Registered via /register</b>\n"
+        f"• <b>User:</b> {html.escape(user.full_name)} (@{user.username or 'none'}, ID: <code>{user.id}</code>)\n"
+        f"• <b>Registered Email:</b> <code>{html.escape(email)}</code>\n"
+        f"• <b>Drive Access Granted:</b> {'Yes' if folder_granted else 'No'}\n"
+        f"• <b>Time:</b> {now_str}",
+    )
+
+
 async def request_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct command: /request your@gmail.com to request access to the shared Google Drive folder."""
     if not is_user_authorized(update):
@@ -736,6 +954,10 @@ def main():
     application.add_handler(CommandHandler("get", direct_get_command))
     application.add_handler(CommandHandler("share", direct_share_command))
     application.add_handler(CommandHandler("request", request_command))
+    application.add_handler(CommandHandler("register", register_command))
+
+    # Handle when bot is added to a new chat/group
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))
 
     # Add conversation handler before generic callback handler
     application.add_handler(share_conv_handler)
