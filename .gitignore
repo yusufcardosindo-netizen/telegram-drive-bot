@@ -13,6 +13,7 @@ service_account.json
 credentials.json
 token.json
 registered_users.json
+settings.json
 
 # Logs and archives
 *.log

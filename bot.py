@@ -31,6 +31,7 @@ from config import (
     ADMIN_TELEGRAM_ID,
     ALLOWED_EMAILS,
     ALLOWED_TELEGRAM_USERS,
+    ALLOWED_TOPIC_IDS,
     DEFAULT_SHARE_ROLE,
     ENABLE_DIRECT_DOWNLOAD,
     ENABLE_EMAIL_SHARING,
@@ -77,6 +78,70 @@ def save_registered_user(user_id: int, user_info: Dict[str, Any]):
             json.dump(users, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.error("Error saving registered_users.json: %s", e)
+
+
+# Persistent settings file (for locked topic/section)
+SETTINGS_FILE = Path(__file__).resolve().parent / "settings.json"
+
+
+def load_settings() -> Dict[str, Any]:
+    """Loads bot settings from JSON file."""
+    if SETTINGS_FILE.exists():
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error("Error reading settings.json: %s", e)
+    return {}
+
+
+def save_settings(settings: Dict[str, Any]):
+    """Saves bot settings to JSON file."""
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error("Error saving settings.json: %s", e)
+
+
+def is_topic_allowed(update: Update) -> bool:
+    """
+    Checks if the update is from an allowed topic/section.
+    - 1-on-1 private chats with the bot are always allowed.
+    - If a topic lock is active (via /lock_topic or ALLOWED_TOPIC_IDS),
+      messages outside the allowed topic are silently ignored!
+    """
+    chat = update.effective_chat
+    if not chat:
+        return True
+
+    # Allow private direct messaging with the bot
+    if chat.type == "private":
+        return True
+
+    settings = load_settings()
+    locked_topic = settings.get("locked_topic_id")
+
+    # Combine environment configuration and dynamic lock
+    allowed_topics: Set[int] = set(ALLOWED_TOPIC_IDS)
+    if locked_topic is not None:
+        try:
+            allowed_topics.add(int(locked_topic))
+        except (ValueError, TypeError):
+            pass
+
+    # If no topic restriction is set, all topics are allowed
+    if not allowed_topics:
+        return True
+
+    msg = update.effective_message
+    thread_id = None
+    if msg:
+        thread_id = getattr(msg, "message_thread_id", None)
+    elif update.callback_query and update.callback_query.message:
+        thread_id = getattr(update.callback_query.message, "message_thread_id", None)
+
+    return thread_id in allowed_topics
 
 # Initialize Google Drive Service
 drive_service = GoogleDriveService()
@@ -172,6 +237,9 @@ def build_file_keyboard(file_id: str) -> InlineKeyboardMarkup:
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /start and /start @AcessV_Bot command both in private chat and in private groups."""
+    if not is_topic_allowed(update):
+        return
+
     user = update.effective_user
     user_name = html.escape(user.first_name if user else "there")
     chat = update.effective_chat
@@ -256,6 +324,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Automatically greets the group when @AcessV_Bot is added to a chat or group."""
+    if not is_topic_allowed(update):
+        return
+
     if not update.message or not update.message.new_chat_members:
         return
 
@@ -272,7 +343,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "• <code>/request your@gmail.com</code> - Request instant folder access\n"
                 "• <code>/list</code> - View files in the repository\n"
                 "• <code>/help</code> - Show bot commands\n\n"
-                "<i>Type <code>/begin @AcessV_Bot</code> anytime to see this menu again!</i>"
+                "<i>Type <code>/start @AcessV_Bot</code> anytime to see this menu again!</i>"
             )
             keyboard = [
                 [
@@ -293,6 +364,9 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def mention_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Triggered whenever @AcessV_Bot is tagged or mentioned in any message."""
+    if not is_topic_allowed(update):
+        return
+
     if not update.effective_message or not update.effective_message.text:
         return
 
@@ -369,6 +443,9 @@ async def mention_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def auth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /auth <passcode> for protected access."""
+    if not is_topic_allowed(update):
+        return
+
     if not ACCESS_PASSCODE:
         await update.message.reply_text("✅ No passcode is required for this bot.")
         return
@@ -394,6 +471,9 @@ async def auth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /help command."""
+    if not is_topic_allowed(update):
+        return
+
     help_text = (
         "📖 <b>How to Access Files:</b>\n\n"
         "1. <b>Register Email:</b> Use <code>/register your@gmail.com</code> to link your Google account "
@@ -404,7 +484,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "4. <b>Search:</b> Use <code>/search &lt;filename&gt;</code> to quickly find a file.\n"
         "5. <b>Direct Download:</b> Click <i>'📥 Download File'</i> or use <code>/get &lt;file_id&gt;</code>. "
         "Files under 50MB will be sent directly to you in Telegram.\n"
-        "6. <b>Single File Sharing:</b> Click <i>'🔑 Grant Drive Access'</i> to add your Google account to a specific file."
+        "6. <b>Single File Sharing:</b> Click <i>'🔑 Grant Drive Access'</i> to add your Google account to a specific file.\n"
+        "7. <b>Section Management:</b> Use <code>/lock_topic</code> in a group section to lock the bot strictly to that topic, or <code>/topic_id</code> to check IDs."
     )
     if update.callback_query:
         await safe_answer_callback(update.callback_query)
@@ -415,6 +496,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lists files available in the Drive folder."""
+    if not is_topic_allowed(update):
+        return
+
     if not is_user_authorized(update):
         await update.effective_message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
         return
@@ -452,6 +536,9 @@ async def list_files_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /search <query> command."""
+    if not is_topic_allowed(update):
+        return
+
     if not is_user_authorized(update):
         await update.effective_message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
         return
@@ -496,6 +583,9 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def execute_download(file_id: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Executes file download and sends document or web link."""
+    if not is_topic_allowed(update):
+        return
+
     chat_id = update.effective_chat.id
     user = update.effective_user
 
@@ -553,6 +643,9 @@ async def execute_download(file_id: str, update: Update, context: ContextTypes.D
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Dispatches button callbacks."""
+    if not is_topic_allowed(update):
+        return
+
     query = update.callback_query
     await safe_answer_callback(query)
 
@@ -602,6 +695,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def process_email_share(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes user's email reply and grants Google Drive permissions."""
+    if not is_topic_allowed(update):
+        return
+
     user = update.effective_user
     email = update.message.text.strip()
     file_id = context.user_data.get("pending_share_file_id")
@@ -675,6 +771,9 @@ async def process_email_share(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels the interactive sharing dialog."""
+    if not is_topic_allowed(update):
+        return ConversationHandler.END
+
     context.user_data.pop("pending_share_file_id", None)
     await update.message.reply_text("🚫 Action cancelled.")
     return ConversationHandler.END
@@ -685,6 +784,9 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct command: /register your@gmail.com to register a user's Google email for Drive access."""
+    if not is_topic_allowed(update):
+        return
+
     if not is_user_authorized(update):
         await update.message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
         return
@@ -802,6 +904,9 @@ async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def request_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct command: /request your@gmail.com to request access to the shared Google Drive folder."""
+    if not is_topic_allowed(update):
+        return
+
     if not is_user_authorized(update):
         await update.message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
         return
@@ -899,6 +1004,9 @@ async def request_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def direct_share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct command: /share <file_id> <email>"""
+    if not is_topic_allowed(update):
+        return
+
     if not is_user_authorized(update):
         await update.message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
         return
@@ -953,6 +1061,9 @@ async def direct_share_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def direct_get_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct command: /get <file_id>"""
+    if not is_topic_allowed(update):
+        return
+
     if not is_user_authorized(update):
         await update.message.reply_text("🔒 Please authenticate first using /auth <passcode>.")
         return
@@ -964,6 +1075,95 @@ async def direct_get_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     file_id = args[0].strip()
     await execute_download(file_id, update, context)
+
+
+async def lock_topic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Locks the bot to the current forum topic/section."""
+    chat = update.effective_chat
+    msg = update.effective_message
+    if not chat or not msg:
+        return
+
+    if chat.type == "private":
+        await msg.reply_text("ℹ️ This command is used inside Telegram supergroup forum topics to lock the bot to that section.")
+        return
+
+    thread_id = getattr(msg, "message_thread_id", None)
+    if thread_id is None:
+        await msg.reply_text(
+            "⚠️ <b>No Topic / Section Detected!</b>\n\n"
+            "This command must be sent inside a specific forum topic (like <i>'Comps Bot (Not In Archive)'</i>) "
+            "so the bot can lock to its ID.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    settings = load_settings()
+    settings["locked_topic_id"] = thread_id
+    settings["locked_chat_id"] = chat.id
+    settings["locked_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    save_settings(settings)
+
+    await msg.reply_text(
+        f"🔒 <b>Section Locked Successfully!</b>\n\n"
+        f"• <b>Topic / Section ID:</b> <code>{thread_id}</code>\n"
+        f"• <b>Chat:</b> {html.escape(chat.title or 'Group')}\n\n"
+        f"✅ The bot is now <b>exclusively restricted</b> to this topic!\n"
+        f"It will silently ignore all messages, mentions, and commands in every other section of this group.\n\n"
+        f"💡 <i>Tip for Render 24/7 Hosting:</i>\n"
+        f"To keep this permanent across Render redeploys, set in your Render Environment Variables:\n"
+        f"<code>ALLOWED_TOPIC_IDS={thread_id}</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def unlock_topic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unlocks the bot so it responds in all topics again."""
+    msg = update.effective_message
+    if not msg:
+        return
+
+    settings = load_settings()
+    if "locked_topic_id" in settings:
+        del settings["locked_topic_id"]
+        save_settings(settings)
+
+    if ALLOWED_TOPIC_IDS:
+        await msg.reply_text(
+            f"⚠️ <b>Topic lock removed from dynamic settings</b>, but <code>ALLOWED_TOPIC_IDS={ALLOWED_TOPIC_IDS}</code> "
+            "is still configured in your environment variables (.env / Render). "
+            "Remove it from environment variables if you want to allow all topics.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await msg.reply_text("🔓 <b>Topic lock removed!</b> The bot can now respond in all sections.", parse_mode=ParseMode.HTML)
+
+
+async def topic_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays current chat ID and topic / thread ID."""
+    chat = update.effective_chat
+    msg = update.effective_message
+    if not chat or not msg:
+        return
+
+    thread_id = getattr(msg, "message_thread_id", None)
+    settings = load_settings()
+    locked_id = settings.get("locked_topic_id")
+
+    status_str = f"Locked to <code>{locked_id}</code>" if locked_id is not None else "Not locked (All topics allowed)"
+    if ALLOWED_TOPIC_IDS:
+        status_str += f" (Env ALLOWED_TOPIC_IDS: <code>{ALLOWED_TOPIC_IDS}</code>)"
+
+    reply = (
+        f"📋 <b>Telegram Section / Topic Info:</b>\n\n"
+        f"• <b>Chat Title:</b> {html.escape(chat.title or 'Private')}\n"
+        f"• <b>Chat ID:</b> <code>{chat.id}</code>\n"
+        f"• <b>Current Topic ID:</b> <code>{thread_id if thread_id is not None else 'None (General / Direct)'}</code>\n"
+        f"• <b>Lock Status:</b> {status_str}\n\n"
+        f"To restrict the bot to only this section, type:\n"
+        f"<code>/lock_topic</code>"
+    )
+    await msg.reply_text(reply, parse_mode=ParseMode.HTML)
 
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -1039,6 +1239,9 @@ def main():
     application.add_handler(CommandHandler("share", direct_share_command))
     application.add_handler(CommandHandler("request", request_command))
     application.add_handler(CommandHandler("register", register_command))
+    application.add_handler(CommandHandler(["lock_topic", "lock_section"], lock_topic_command))
+    application.add_handler(CommandHandler(["unlock_topic", "unlock_section"], unlock_topic_command))
+    application.add_handler(CommandHandler(["topic_id", "section_id"], topic_id_command))
 
     # Handle when bot is added to a new chat/group
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, on_new_chat_members))

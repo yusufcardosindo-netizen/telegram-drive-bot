@@ -143,6 +143,18 @@ You should see:
 | **Download** | Click `📥 Download File` or `/get <file_id>` | Sends file directly via Telegram (if <= 50MB) or provides link. |
 | **Grant Access** | Click `🔑 Grant Drive Access` | Prompts user for their Gmail, then grants instant Drive access! |
 | **Direct Share** | `/share <file_id> <email>` | Grants access to the specified Google account immediately. |
+| **Lock Section** | `/lock_topic` or `/lock_section` | Locks the bot exclusively to the current forum topic/section in a supergroup. |
+| **Topic Info** | `/topic_id` or `/section_id` | Displays the current chat and forum topic thread ID. |
+| **Unlock Section** | `/unlock_topic` | Removes the topic lock and allows the bot in all sections. |
+
+---
+
+### 🔒 Restricting to a Specific Forum Section / Topic
+In Telegram supergroups with Forum topics enabled (e.g. *Elite Cristiano Ronaldo Archive*), you can restrict the bot so it **strictly operates in a single section** (e.g. *Comps Bot (Not In Archive)*) and silently ignores messages in all other sections:
+1. Open the desired topic inside Telegram.
+2. Send: `/lock_topic`
+3. The bot records the `message_thread_id` and locks itself to that section!
+4. *(Optional for Cloud / Render restarts)* Add `ALLOWED_TOPIC_IDS=<topic_id>` to your Render environment variables.
 
 ---
 

@@ -65,6 +65,16 @@ ALLOWED_EMAILS = (
     else []
 )
 
+# Comma-separated list of allowed Topic/Thread IDs in Telegram forum supergroups
+# If set, the bot will strictly and ONLY respond inside these topics/sections.
+# Example: ALLOWED_TOPIC_IDS=1949
+_allowed_topics_raw = os.getenv("ALLOWED_TOPIC_IDS", "").strip()
+ALLOWED_TOPIC_IDS = (
+    [int(t.strip()) for t in _allowed_topics_raw.split(",") if t.strip().isdigit()]
+    if _allowed_topics_raw
+    else []
+)
+
 # Feature Flags
 ENABLE_DIRECT_DOWNLOAD = os.getenv("ENABLE_DIRECT_DOWNLOAD", "true").lower() in ("1", "true", "yes")
 ENABLE_EMAIL_SHARING = os.getenv("ENABLE_EMAIL_SHARING", "true").lower() in ("1", "true", "yes")
