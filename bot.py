@@ -171,7 +171,7 @@ def build_file_keyboard(file_id: str) -> InlineKeyboardMarkup:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /start command both in private chat and in groups (/start @AcessV_Bot)."""
+    """Handles /begin (and /start) command both in private chat and in groups (/begin @AcessV_Bot)."""
     user = update.effective_user
     user_name = html.escape(user.first_name if user else "there")
     chat = update.effective_chat
@@ -270,7 +270,7 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "• <code>/request your@gmail.com</code> - Request instant folder access\n"
                 "• <code>/list</code> - View files in the repository\n"
                 "• <code>/help</code> - Show bot commands\n\n"
-                "<i>Type <code>/start @AcessV_Bot</code> anytime to see this menu again!</i>"
+                "<i>Type <code>/begin @AcessV_Bot</code> anytime to see this menu again!</i>"
             )
             keyboard = [
                 [
@@ -945,7 +945,7 @@ def main():
     )
 
     # Register handlers
-    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler(["begin", "start"], start_command))
     application.add_handler(CommandHandler("auth", auth_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("list", list_files_command))
