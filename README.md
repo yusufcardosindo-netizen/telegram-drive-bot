@@ -133,7 +133,7 @@ You should see:
 
 | Action | Command / Interaction | Description |
 |---|---|---|
-| **Begin / Start** | `/begin` or `/begin @AcessV_Bot` (or `/start`) | Displays welcome screen (tailored for private chat or group). |
+| **Start** | `/start` (default) or `/start @AcessV_Bot` | Displays welcome screen (tailored for private chat or private group). |
 | **Authorize** | `/auth <passcode>` | Unlocks file access if you configured a passcode. |
 | **Register** | `/register <your@gmail.com>` | Links user's Google email and grants Drive repository access. |
 | **Browse** | `/list` or `/files` | Lists available files with action buttons. |

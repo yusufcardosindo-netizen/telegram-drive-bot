@@ -171,7 +171,7 @@ def build_file_keyboard(file_id: str) -> InlineKeyboardMarkup:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /begin (and /start) command both in private chat and in groups (/begin @AcessV_Bot)."""
+    """Handles /start and /start @AcessV_Bot command both in private chat and in private groups."""
     user = update.effective_user
     user_name = html.escape(user.first_name if user else "there")
     chat = update.effective_chat
@@ -192,7 +192,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Special greeting when /start or /start @AcessV_Bot is used in a group/chat
+    # Special greeting when /start or /start @AcessV_Bot is used in a private group/chat
     if is_group:
         chat_title = html.escape(chat.title or "this chat")
         welcome_group_text = (
@@ -201,6 +201,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Members can browse, download, and request Google Drive file access 24/7 "
             "even when the owner is offline!\n\n"
             "<b>Available Commands in this Group:</b>\n"
+            "• <code>/start @AcessV_Bot</code> - Show this menu\n"
             "• <code>/register your@gmail.com</code> - Register your Google account for access\n"
             "• <code>/request your@gmail.com</code> - Request instant folder access\n"
             "• <code>/list</code> - Browse shared files\n"
@@ -230,6 +231,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Even when the drive owner is offline, I can help you search, download, or "
         "grant direct Google Drive access to the files you need.\n\n"
         "<b>Available Commands:</b>\n"
+        "• <code>/start</code> - Open this menu\n"
         "• <code>/register your@gmail.com</code> - Register your Google account for Drive access\n"
         "• <code>/request your@gmail.com</code> - Request instant access for your Google account\n"
         "• <code>/list</code> - Browse available files\n"
@@ -945,7 +947,9 @@ def main():
     )
 
     # Register handlers
-    application.add_handler(CommandHandler(["begin", "start"], start_command))
+    application.add_handler(CommandHandler(["start", "begin"], start_command))
+    application.add_handler(MessageHandler(filters.Regex(re.compile(r"^/start\s*@AcessV_Bot$", re.IGNORECASE)), start_command))
+    application.add_handler(MessageHandler(filters.Regex(re.compile(r"^@AcessV_Bot$", re.IGNORECASE)), start_command))
     application.add_handler(CommandHandler("auth", auth_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("list", list_files_command))
