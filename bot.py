@@ -291,6 +291,82 @@ async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             break
 
 
+async def mention_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Triggered whenever @AcessV_Bot is tagged or mentioned in any message."""
+    if not update.effective_message or not update.effective_message.text:
+        return
+
+    text = update.effective_message.text.strip()
+    # Skip if message is a command starting with '/', as CommandHandler already manages it
+    if text.startswith("/"):
+        return
+
+    user = update.effective_user
+    user_name = html.escape(user.first_name if user else "there")
+    chat = update.effective_chat
+    is_group = chat and chat.type in ["group", "supergroup"]
+
+    if not is_user_authorized(update):
+        if ACCESS_PASSCODE:
+            await update.effective_message.reply_text(
+                f"👋 Hello {user_name}!\n\n"
+                "🔒 This bot requires an access passcode.\n"
+                "Please enter it using: <code>/auth &lt;passcode&gt;</code>",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await update.effective_message.reply_text("⛔ You are not authorized to use this bot.")
+        return
+
+    if is_group:
+        chat_title = html.escape(chat.title or "this chat")
+        tag_text = (
+            f"👋 Hello {user_name}! You tagged me in <b>{chat_title}</b>!\n\n"
+            "I am <b>@AcessV_Bot</b>, your automated Google Drive Assistant.\n\n"
+            "<b>Quick Commands:</b>\n"
+            "• <code>/register your@gmail.com</code> - Register your Google account\n"
+            "• <code>/request your@gmail.com</code> - Request folder access\n"
+            "• <code>/list</code> - View available files\n"
+            "• <code>/search &lt;query&gt;</code> - Search files\n"
+            "• <code>/help</code> - Detailed instructions"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("📂 Browse Files", callback_data="btn_list"),
+                InlineKeyboardButton("🔍 Search Files", callback_data="btn_search"),
+            ],
+            [
+                InlineKeyboardButton("💬 Open in Private Chat", url="https://t.me/AcessV_Bot?start=tag"),
+            ],
+        ]
+    else:
+        tag_text = (
+            f"👋 Hello {user_name}! You tagged me!\n\n"
+            "I am your automated Google Drive Assistant. How can I help you today?\n\n"
+            "<b>Available Commands:</b>\n"
+            "• <code>/register your@gmail.com</code> - Register your Google account\n"
+            "• <code>/request your@gmail.com</code> - Request folder access\n"
+            "• <code>/list</code> - View available files\n"
+            "• <code>/search &lt;query&gt;</code> - Search files\n"
+            "• <code>/help</code> - Detailed instructions"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("📂 Browse Files", callback_data="btn_list"),
+                InlineKeyboardButton("🔍 Search Files", callback_data="btn_search"),
+            ],
+            [
+                InlineKeyboardButton("ℹ️ Help & Instructions", callback_data="btn_help"),
+            ],
+        ]
+
+    await update.effective_message.reply_text(
+        tag_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def auth_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /auth <passcode> for protected access."""
     if not ACCESS_PASSCODE:
@@ -948,8 +1024,12 @@ def main():
 
     # Register handlers
     application.add_handler(CommandHandler(["start", "begin"], start_command))
-    application.add_handler(MessageHandler(filters.Regex(re.compile(r"^/start\s*@AcessV_Bot$", re.IGNORECASE)), start_command))
-    application.add_handler(MessageHandler(filters.Regex(re.compile(r"^@AcessV_Bot$", re.IGNORECASE)), start_command))
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex(re.compile(r"@AcessV_Bot\b", re.IGNORECASE)),
+            mention_handler,
+        )
+    )
     application.add_handler(CommandHandler("auth", auth_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("list", list_files_command))
